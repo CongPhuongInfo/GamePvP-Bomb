@@ -377,31 +377,42 @@ Public Class BombGame
     End Sub
 
     Private Sub ExplodeBomb(bm As BombInfo)
-        AddFire(bm.X, bm.Y)
-        SpreadFire(bm.X, bm.Y, 1, 0, bm.Range)
-        SpreadFire(bm.X, bm.Y, -1, 0, bm.Range)
-        SpreadFire(bm.X, bm.Y, 0, 1, bm.Range)
-        SpreadFire(bm.X, bm.Y, 0, -1, bm.Range)
+        ' Dung queue thay vi de quy de tranh crash khi co nhieu bom
+        Dim queue As New Queue(Of BombInfo)()
+        queue.Enqueue(bm)
 
-        ' Chain reaction
-        Dim i As Integer = 0
-        Do While i < Bombs.Count
-            If Fires.Exists(Function(f) f.X = Bombs(i).X AndAlso f.Y = Bombs(i).Y) Then
-                Dim chain As BombInfo = Bombs(i)
-                PlayerBombCount(chain.Owner) -= 1
-                If PlayerBombCount(chain.Owner) < 0 Then PlayerBombCount(chain.Owner) = 0
-                ExplodeBomb(chain)
-                Bombs.RemoveAt(i)
-            Else
-                i += 1
-            End If
+        Do While queue.Count > 0
+            Dim cur As BombInfo = queue.Dequeue()
+
+            AddFire(cur.X, cur.Y)
+            SpreadFire(cur.X, cur.Y, 1, 0, cur.Range)
+            SpreadFire(cur.X, cur.Y, -1, 0, cur.Range)
+            SpreadFire(cur.X, cur.Y, 0, 1, cur.Range)
+            SpreadFire(cur.X, cur.Y, 0, -1, cur.Range)
+
+            ' Tim bom nao bi lua -> them vao queue (chain reaction)
+            Dim i As Integer = 0
+            Do While i < Bombs.Count
+                Dim candidate As BombInfo = Bombs(i)
+                If Fires.Exists(Function(f) f.X = candidate.X AndAlso f.Y = candidate.Y) Then
+                    PlayerBombCount(candidate.Owner) -= 1
+                    If PlayerBombCount(candidate.Owner) < 0 Then PlayerBombCount(candidate.Owner) = 0
+                    Bombs.RemoveAt(i)
+                    queue.Enqueue(candidate)
+                    ' Khong tang i vi da xoa phan tu tai i
+                Else
+                    i += 1
+                End If
+            Loop
         Loop
 
+        ' Sau khi tat ca bom no xong, check dame
         CheckPlayerFireDamage(0)
         If Not IsPvAI Then CheckPlayerFireDamage(1)
 
         ' Kiem tra monster bi lua
         If IsPvAI Then
+            Dim i As Integer
             For i = 0 To Monsters.Count - 1
                 If Not Monsters(i).Alive Then Continue For
                 Dim mi As MonsterInfo = Monsters(i)
