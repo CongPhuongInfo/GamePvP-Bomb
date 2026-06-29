@@ -142,7 +142,7 @@ Public Class NetworkPeer
         End SyncLock
         isRunning = False
         If uiControl.InvokeRequired Then
-            uiControl.Invoke(New Action(AddressOf DoRaiseDisconnected))
+            uiControl.BeginInvoke(New Action(AddressOf DoRaiseDisconnected))  ' FIX: BeginInvoke tranh deadlock khi MessageBox dang block UI thread
         Else
             DoRaiseDisconnected()
         End If

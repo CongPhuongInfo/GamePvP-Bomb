@@ -17,11 +17,15 @@ Public Class Form1
     Private peer As NetworkPeer
     Private isHost As Boolean
     Private localPlayer As Integer = -1
+    Private isPvAIMode As Boolean = False
 
     Private BoardW As Integer = BombGame.COLS * CELL_SIZE
     Private BoardH As Integer = BombGame.ROWS * CELL_SIZE
 
-    ' === UI connect ===
+    ' === UI mode select ===
+    Private pnlMode As Panel
+
+    ' === UI connect (PvP) ===
     Private pnlConnect As Panel
     Private txtPort As TextBox
     Private txtIP As TextBox
@@ -37,10 +41,15 @@ Public Class Form1
     Private btnRestart As Button
     Private lstLog As ListBox
 
-    ' === Timer (chi host chay) ===
-    Private tickTimer As System.Windows.Forms.Timer
+    ' === Chat (PvP only) ===
+    Private pnlChat As Panel
+    Private lstChat As ListBox
+    Private txtChatInput As TextBox
+    Private btnSend As Button
+    Private Const CHAT_W As Integer = 210
 
-    ' FIX: flag tranh gui STATE lien tuc trong cung 1 tick
+    ' === Timer ===
+    Private tickTimer As System.Windows.Forms.Timer
     Private statePending As Boolean = False
 
     Public Sub New()
@@ -48,8 +57,8 @@ Public Class Form1
     End Sub
 
     Private Sub InitUI()
-        Me.Text = "Dat Bom Online - 2CongLC"
-        Me.ClientSize = New Size(BoardW + 20, BoardH + 220)
+        Me.Text = "Dat Bom - 2CongLC"
+        Me.ClientSize = New Size(BoardW + 20 + CHAT_W, BoardH + 220)
         Me.FormBorderStyle = FormBorderStyle.FixedSingle
         Me.MaximizeBox = False
         Me.StartPosition = FormStartPosition.CenterScreen
@@ -61,13 +70,92 @@ Public Class Form1
         tickTimer.Interval = TICK_MS
         AddHandler tickTimer.Tick, AddressOf TickTimer_Tick
 
+        BuildModePanel()
         BuildConnectPanel()
         BuildGamePanel()
+        BuildChatPanel()
+        pnlConnect.Visible = False
         pnlGame.Visible = False
     End Sub
 
     ' ============================================================
-    '  CONNECT PANEL
+    '  MODE SELECT PANEL
+    ' ============================================================
+    Private Sub BuildModePanel()
+        pnlMode = New Panel()
+        pnlMode.Dock = DockStyle.Fill
+        pnlMode.BackColor = Color.FromArgb(30, 30, 30)
+
+        Dim lbl As New Label()
+        lbl.Text = "DAT BOM ONLINE"
+        lbl.Font = New Font("Segoe UI", 24.0!, FontStyle.Bold)
+        lbl.ForeColor = Color.OrangeRed
+        lbl.Location = New Point(200, 80) : lbl.AutoSize = True
+        pnlMode.Controls.Add(lbl)
+
+        Dim lbl2 As New Label()
+        lbl2.Text = "Chon che do choi:"
+        lbl2.Font = New Font("Segoe UI", 13.0!)
+        lbl2.ForeColor = Color.LightGray
+        lbl2.Location = New Point(265, 155) : lbl2.AutoSize = True
+        pnlMode.Controls.Add(lbl2)
+
+        ' PvP button
+        Dim btnPvP As New Button()
+        btnPvP.Text = "⚔  PvP - 2 Nguoi (LAN)"
+        btnPvP.Font = New Font("Segoe UI", 12.0!, FontStyle.Bold)
+        btnPvP.Location = New Point(215, 200) : btnPvP.Size = New Size(300, 60)
+        btnPvP.BackColor = Color.SteelBlue : btnPvP.ForeColor = Color.White
+        btnPvP.FlatStyle = FlatStyle.Flat
+        AddHandler btnPvP.Click, AddressOf BtnPvP_Click
+        pnlMode.Controls.Add(btnPvP)
+
+        ' PvAI button
+        Dim btnPvAI As New Button()
+        btnPvAI.Text = "👾  PvAI - Danh voi Monster"
+        btnPvAI.Font = New Font("Segoe UI", 12.0!, FontStyle.Bold)
+        btnPvAI.Location = New Point(215, 280) : btnPvAI.Size = New Size(300, 60)
+        btnPvAI.BackColor = Color.FromArgb(160, 50, 200) : btnPvAI.ForeColor = Color.White
+        btnPvAI.FlatStyle = FlatStyle.Flat
+        AddHandler btnPvAI.Click, AddressOf BtnPvAI_Click
+        pnlMode.Controls.Add(btnPvAI)
+
+        Dim lHelp As New Label()
+        lHelp.Text = "Dieu khien: WASD / Mui ten di chuyen  |  Space dat bom"
+        lHelp.ForeColor = Color.Yellow
+        lHelp.Font = New Font("Segoe UI", 9.0!)
+        lHelp.Location = New Point(175, 375) : lHelp.AutoSize = True
+        pnlMode.Controls.Add(lHelp)
+
+        Me.Controls.Add(pnlMode)
+    End Sub
+
+    Private Sub BtnPvP_Click(sender As Object, e As EventArgs)
+        isPvAIMode = False
+        pnlMode.Visible = False
+        pnlConnect.Visible = True
+    End Sub
+
+    Private Sub BtnPvAI_Click(sender As Object, e As EventArgs)
+        isPvAIMode = True
+        pnlMode.Visible = False
+        StartPvAI()
+    End Sub
+
+    Private Sub StartPvAI()
+        isHost = True
+        localPlayer = 0
+        game = New BombGame()
+        game.IsPvAI = True
+        game.SpawnMonsters(4)
+        statePending = False
+        ShowGamePanel()
+        AppendLog("PvAI: Tieu diet het 4 monster de thang!")
+        tickTimer.Start()
+    End Sub
+
+    ' ============================================================
+    '  CONNECT PANEL (PvP)
     ' ============================================================
     Private Sub BuildConnectPanel()
         pnlConnect = New Panel()
@@ -75,59 +163,55 @@ Public Class Form1
         pnlConnect.BackColor = Color.FromArgb(30, 30, 30)
 
         Dim lbl As New Label()
-        lbl.Text = "DAT BOM ONLINE" : lbl.Font = New Font("Segoe UI", 22.0!, FontStyle.Bold)
-        lbl.ForeColor = Color.OrangeRed
-        lbl.Location = New Point(230, 70) : lbl.AutoSize = True
+        lbl.Text = "PvP - Ket Noi LAN"
+        lbl.Font = New Font("Segoe UI", 20.0!, FontStyle.Bold)
+        lbl.ForeColor = Color.SteelBlue
+        lbl.Location = New Point(240, 70) : lbl.AutoSize = True
         pnlConnect.Controls.Add(lbl)
 
-        Dim lbl2 As New Label()
-        lbl2.Text = "Bomberman 2 Nguoi - PvP LAN/Online"
-        lbl2.Font = New Font("Segoe UI", 10.0!)
-        lbl2.ForeColor = Color.LightGray
-        lbl2.Location = New Point(255, 115) : lbl2.AutoSize = True
-        pnlConnect.Controls.Add(lbl2)
+        Dim btnBack As New Button()
+        btnBack.Text = "< Quay lai"
+        btnBack.Location = New Point(10, 10) : btnBack.Size = New Size(100, 30)
+        btnBack.BackColor = Color.DimGray : btnBack.ForeColor = Color.White
+        btnBack.FlatStyle = FlatStyle.Flat
+        AddHandler btnBack.Click, Sub(s, ev)
+            pnlConnect.Visible = False
+            pnlMode.Visible = True
+        End Sub
+        pnlConnect.Controls.Add(btnBack)
 
         Dim lPort As New Label() : lPort.Text = "Port:" : lPort.ForeColor = Color.White
-        lPort.Location = New Point(300, 180) : lPort.AutoSize = True
+        lPort.Location = New Point(300, 150) : lPort.AutoSize = True
         pnlConnect.Controls.Add(lPort)
         txtPort = New TextBox() : txtPort.Text = DEFAULT_PORT.ToString()
-        txtPort.Location = New Point(355, 177) : txtPort.Width = 80
+        txtPort.Location = New Point(355, 147) : txtPort.Width = 80
         pnlConnect.Controls.Add(txtPort)
 
         btnHost = New Button() : btnHost.Text = "Tao phong (Host)"
-        btnHost.Location = New Point(300, 215) : btnHost.Size = New Size(200, 38)
+        btnHost.Location = New Point(300, 185) : btnHost.Size = New Size(200, 38)
         btnHost.BackColor = Color.OrangeRed : btnHost.ForeColor = Color.White
         btnHost.FlatStyle = FlatStyle.Flat
         AddHandler btnHost.Click, AddressOf BtnHost_Click
         pnlConnect.Controls.Add(btnHost)
 
         Dim lIP As New Label() : lIP.Text = "IP Host:" : lIP.ForeColor = Color.White
-        lIP.Location = New Point(300, 275) : lIP.AutoSize = True
+        lIP.Location = New Point(300, 245) : lIP.AutoSize = True
         pnlConnect.Controls.Add(lIP)
         txtIP = New TextBox() : txtIP.Text = "127.0.0.1"
-        txtIP.Location = New Point(370, 272) : txtIP.Width = 140
+        txtIP.Location = New Point(370, 242) : txtIP.Width = 140
         pnlConnect.Controls.Add(txtIP)
 
         btnJoin = New Button() : btnJoin.Text = "Vao phong (Join)"
-        btnJoin.Location = New Point(300, 307) : btnJoin.Size = New Size(200, 38)
+        btnJoin.Location = New Point(300, 277) : btnJoin.Size = New Size(200, 38)
         btnJoin.BackColor = Color.SteelBlue : btnJoin.ForeColor = Color.White
         btnJoin.FlatStyle = FlatStyle.Flat
         AddHandler btnJoin.Click, AddressOf BtnJoin_Click
         pnlConnect.Controls.Add(btnJoin)
 
-        lblStatus = New Label() : lblStatus.Location = New Point(255, 375) : lblStatus.AutoSize = True
+        lblStatus = New Label() : lblStatus.Location = New Point(255, 340) : lblStatus.AutoSize = True
         lblStatus.ForeColor = Color.LightGray
         lblStatus.Text = "Host: bam 'Tao phong'." & Environment.NewLine & "Khach: nhap IP roi bam 'Vao phong'."
         pnlConnect.Controls.Add(lblStatus)
-
-        Dim lHelp As New Label()
-        lHelp.Text = "Dieu khien (ca 2 may):" & Environment.NewLine &
-                     "  WASD hoac Mui ten: di chuyen" & Environment.NewLine &
-                     "  Space: dat bom"
-        lHelp.ForeColor = Color.Yellow
-        lHelp.Font = New Font("Segoe UI", 9.0!)
-        lHelp.Location = New Point(255, 430) : lHelp.AutoSize = True
-        pnlConnect.Controls.Add(lHelp)
 
         Me.Controls.Add(pnlConnect)
     End Sub
@@ -153,20 +237,36 @@ Public Class Form1
         lblInfo.ForeColor = Color.Yellow
         pnlGame.Controls.Add(lblInfo)
 
-        boardPanel = New Panel()
+        boardPanel = New DoubleBufferedPanel()
         boardPanel.Location = New Point(10, 55)
         boardPanel.Size = New Size(BoardW, BoardH)
         boardPanel.BackColor = Color.Black
         AddHandler boardPanel.Paint, AddressOf BoardPanel_Paint
         pnlGame.Controls.Add(boardPanel)
 
-        btnRestart = New Button() : btnRestart.Text = "Choi lai (Host)"
+        btnRestart = New Button() : btnRestart.Text = "Choi lai"
         btnRestart.Location = New Point(10, 55 + BoardH + 10)
-        btnRestart.Size = New Size(150, 32)
+        btnRestart.Size = New Size(110, 32)
         btnRestart.BackColor = Color.DimGray : btnRestart.ForeColor = Color.White
         btnRestart.FlatStyle = FlatStyle.Flat
         AddHandler btnRestart.Click, AddressOf BtnRestart_Click
         pnlGame.Controls.Add(btnRestart)
+
+        Dim btnMenu As New Button() : btnMenu.Text = "Menu chinh"
+        btnMenu.Location = New Point(130, 55 + BoardH + 10)
+        btnMenu.Size = New Size(110, 32)
+        btnMenu.BackColor = Color.DimGray : btnMenu.ForeColor = Color.White
+        btnMenu.FlatStyle = FlatStyle.Flat
+        AddHandler btnMenu.Click, Sub(s, ev)
+            tickTimer.Stop()
+            If peer IsNot Nothing Then peer.CloseConnection()
+            peer = Nothing
+            game = Nothing
+            pnlGame.Visible = False
+            pnlConnect.Visible = False
+            pnlMode.Visible = True
+        End Sub
+        pnlGame.Controls.Add(btnMenu)
 
         lstLog = New ListBox()
         lstLog.Location = New Point(10, 55 + BoardH + 52)
@@ -180,6 +280,86 @@ Public Class Form1
     End Sub
 
     ' ============================================================
+    '  CHAT PANEL (PvP only, nam ben phai board)
+    ' ============================================================
+    Private Sub BuildChatPanel()
+        Dim chatX As Integer = BoardW + 20
+        Dim chatH As Integer = BoardH + 220
+
+        pnlChat = New Panel()
+        pnlChat.Location = New Point(chatX, 0)
+        pnlChat.Size = New Size(CHAT_W, chatH)
+        pnlChat.BackColor = Color.FromArgb(22, 22, 30)
+        pnlChat.Visible = False
+
+        Dim lblChat As New Label()
+        lblChat.Text = "CHAT"
+        lblChat.Font = New Font("Segoe UI", 10.0!, FontStyle.Bold)
+        lblChat.ForeColor = Color.SteelBlue
+        lblChat.Location = New Point(8, 8) : lblChat.AutoSize = True
+        pnlChat.Controls.Add(lblChat)
+
+        Dim sep As New Label()
+        sep.BackColor = Color.SteelBlue
+        sep.Location = New Point(0, 28) : sep.Size = New Size(CHAT_W, 1)
+        pnlChat.Controls.Add(sep)
+
+        lstChat = New ListBox()
+        lstChat.Location = New Point(4, 34)
+        lstChat.Size = New Size(CHAT_W - 8, chatH - 34 - 60)
+        lstChat.BackColor = Color.FromArgb(18, 18, 26)
+        lstChat.ForeColor = Color.LightCyan
+        lstChat.Font = New Font("Segoe UI", 8.5!)
+        lstChat.BorderStyle = BorderStyle.None
+        lstChat.HorizontalScrollbar = False
+        lstChat.ScrollAlwaysVisible = False
+        pnlChat.Controls.Add(lstChat)
+
+        txtChatInput = New TextBox()
+        txtChatInput.Location = New Point(4, chatH - 54)
+        txtChatInput.Size = New Size(CHAT_W - 8, 24)
+        txtChatInput.BackColor = Color.FromArgb(40, 40, 55)
+        txtChatInput.ForeColor = Color.White
+        txtChatInput.Font = New Font("Segoe UI", 9.0!)
+        txtChatInput.BorderStyle = BorderStyle.FixedSingle
+        txtChatInput.MaxLength = 80
+        ' Enter gui tin nhan
+        AddHandler txtChatInput.KeyDown, Sub(s, ev)
+            If ev.KeyCode = Keys.Enter Then
+                ev.SuppressKeyPress = True
+                SendChat()
+            End If
+        End Sub
+        pnlChat.Controls.Add(txtChatInput)
+
+        btnSend = New Button()
+        btnSend.Text = "Gui"
+        btnSend.Location = New Point(4, chatH - 26)
+        btnSend.Size = New Size(CHAT_W - 8, 22)
+        btnSend.BackColor = Color.SteelBlue : btnSend.ForeColor = Color.White
+        btnSend.FlatStyle = FlatStyle.Flat
+        btnSend.Font = New Font("Segoe UI", 8.5!)
+        AddHandler btnSend.Click, Sub(s, ev) SendChat()
+        pnlChat.Controls.Add(btnSend)
+
+        Me.Controls.Add(pnlChat)
+    End Sub
+
+    Private Sub SendChat()
+        Dim msg As String = txtChatInput.Text.Trim()
+        If msg = "" OrElse peer Is Nothing Then Return
+        Dim tag As String = If(localPlayer = 0, "P1", "P2")
+        AppendChat(tag & ": " & msg)
+        peer.SendLine("CHAT:" & tag & ":" & msg.Replace(":", " "))
+        txtChatInput.Clear()
+    End Sub
+
+    Private Sub AppendChat(msg As String)
+        lstChat.Items.Add(msg)
+        lstChat.TopIndex = lstChat.Items.Count - 1
+    End Sub
+
+    ' ============================================================
     '  GDI BOARD
     ' ============================================================
     Private Sub BoardPanel_Paint(sender As Object, e As PaintEventArgs)
@@ -188,7 +368,6 @@ Public Class Form1
         g.SmoothingMode = SmoothingMode.AntiAlias
 
         Dim x As Integer, y As Integer
-
         For y = 0 To BombGame.ROWS - 1
             For x = 0 To BombGame.COLS - 1
                 DrawCell(g, x, y)
@@ -196,6 +375,10 @@ Public Class Form1
         Next y
 
         Dim i As Integer
+        For i = 0 To game.Powerups.Count - 1
+            DrawPowerup(g, game.Powerups(i).X, game.Powerups(i).Y, game.Powerups(i).Kind)
+        Next i
+
         For i = 0 To game.Fires.Count - 1
             DrawFire(g, game.Fires(i).X, game.Fires(i).Y)
         Next i
@@ -204,8 +387,15 @@ Public Class Form1
             DrawBomb(g, game.Bombs(i).X, game.Bombs(i).Y, game.Bombs(i).Timer)
         Next i
 
+        ' Ve monster
+        For i = 0 To game.Monsters.Count - 1
+            If game.Monsters(i).Alive Then
+                DrawMonster(g, game.Monsters(i).X, game.Monsters(i).Y)
+            End If
+        Next i
+
         If game.PlayerAlive(0) Then DrawPlayer(g, game.PlayerX(0), game.PlayerY(0), 0)
-        If game.PlayerAlive(1) Then DrawPlayer(g, game.PlayerX(1), game.PlayerY(1), 1)
+        If Not game.IsPvAI AndAlso game.PlayerAlive(1) Then DrawPlayer(g, game.PlayerX(1), game.PlayerY(1), 1)
     End Sub
 
     Private Sub DrawCell(g As Graphics, x As Integer, y As Integer)
@@ -213,8 +403,7 @@ Public Class Form1
         Dim ry As Integer = y * CELL_SIZE
         Dim r As New Rectangle(rx, ry, CELL_SIZE, CELL_SIZE)
 
-        Dim ct As BombGame.CellType = game.Map(x, y)
-        Select Case ct
+        Select Case game.Map(x, y)
             Case BombGame.CellType.Wall
                 Using br As New SolidBrush(Color.FromArgb(70, 70, 90))
                     g.FillRectangle(br, r)
@@ -231,7 +420,6 @@ Public Class Form1
                     g.DrawLine(p2, rx + 2, ry + CELL_SIZE \ 2, rx + CELL_SIZE - 2, ry + CELL_SIZE \ 2)
                     g.DrawLine(p2, rx + CELL_SIZE \ 2, ry + 2, rx + CELL_SIZE \ 2, ry + CELL_SIZE - 2)
                 End Using
-
             Case BombGame.CellType.Box
                 Using br As New SolidBrush(Color.FromArgb(140, 90, 40))
                     g.FillRectangle(br, r)
@@ -243,25 +431,48 @@ Public Class Form1
                     g.DrawLine(p2, rx + 4, ry + 4, rx + CELL_SIZE - 4, ry + CELL_SIZE - 4)
                     g.DrawLine(p2, rx + CELL_SIZE - 4, ry + 4, rx + 4, ry + CELL_SIZE - 4)
                 End Using
-                Using br2 As New SolidBrush(Color.FromArgb(30, 200, 150, 80))
-                    g.FillRectangle(br2, rx + 2, ry + 2, CELL_SIZE \ 3, CELL_SIZE \ 3)
-                End Using
-
             Case Else
-                Dim shade As Color = If((x + y) Mod 2 = 0,
-                    Color.FromArgb(60, 60, 60),
-                    Color.FromArgb(50, 50, 50))
+                Dim shade As Color = If((x + y) Mod 2 = 0, Color.FromArgb(60, 60, 60), Color.FromArgb(50, 50, 50))
                 Using br As New SolidBrush(shade)
                     g.FillRectangle(br, r)
                 End Using
         End Select
     End Sub
 
+    Private Sub DrawPowerup(g As Graphics, x As Integer, y As Integer, kind As BombGame.PowerupType)
+        Dim rx As Integer = x * CELL_SIZE + 6
+        Dim ry As Integer = y * CELL_SIZE + 6
+        Dim sz As Integer = CELL_SIZE - 12
+        Dim bgColor As Color
+        Dim symbol As String
+        Select Case kind
+            Case BombGame.PowerupType.Range
+                bgColor = Color.FromArgb(220, 30, 180, 255) : symbol = "R"
+            Case BombGame.PowerupType.BombUp
+                bgColor = Color.FromArgb(220, 255, 80, 30) : symbol = "B"
+            Case Else
+                bgColor = Color.FromArgb(220, 50, 220, 80) : symbol = "S"
+        End Select
+        Using br As New SolidBrush(bgColor)
+            g.FillRectangle(br, rx, ry, sz, sz)
+        End Using
+        Using p As New Pen(Color.White, 1.5!)
+            g.DrawRectangle(p, rx, ry, sz, sz)
+        End Using
+        Using fnt As New Font("Arial", 10.0!, FontStyle.Bold)
+            Using tbr As New SolidBrush(Color.White)
+                Dim sf As New StringFormat()
+                sf.Alignment = StringAlignment.Center
+                sf.LineAlignment = StringAlignment.Center
+                g.DrawString(symbol, fnt, tbr, New RectangleF(rx, ry, sz, sz), sf)
+            End Using
+        End Using
+    End Sub
+
     Private Sub DrawBomb(g As Graphics, x As Integer, y As Integer, timer As Integer)
         Dim cx As Integer = x * CELL_SIZE + CELL_SIZE \ 2
         Dim cy As Integer = y * CELL_SIZE + CELL_SIZE \ 2
         Dim rad As Integer = CELL_SIZE \ 2 - 4
-
         Dim bombClr As Color = If(timer <= 2, Color.OrangeRed, Color.FromArgb(20, 20, 20))
         Using br As New SolidBrush(bombClr)
             g.FillEllipse(br, cx - rad, cy - rad, rad * 2, rad * 2)
@@ -279,81 +490,154 @@ Public Class Form1
         Using br3 As New SolidBrush(Color.Yellow)
             g.FillEllipse(br3, cx + rad - 3, cy - rad - 9, 7, 7)
         End Using
-        Using fnt As New Font("Segoe UI", 10.0!, FontStyle.Bold)
-        Using brT As New SolidBrush(Color.White)
-            Dim txt As String = timer.ToString()
-            Dim sz As SizeF = g.MeasureString(txt, fnt)
-            g.DrawString(txt, fnt, brT, CSng(cx - sz.Width / 2.0), CSng(cy - sz.Height / 2.0))
-        End Using
+        Using fnt As New Font("Arial", 8.0!, FontStyle.Bold)
+            Using tbr As New SolidBrush(Color.White)
+                Dim sf As New StringFormat()
+                sf.Alignment = StringAlignment.Center : sf.LineAlignment = StringAlignment.Center
+                g.DrawString(timer.ToString(), fnt, tbr, New RectangleF(cx - rad, cy - rad, rad * 2, rad * 2), sf)
+            End Using
         End Using
     End Sub
 
     Private Sub DrawFire(g As Graphics, x As Integer, y As Integer)
-        Dim rx As Integer = x * CELL_SIZE
-        Dim ry As Integer = y * CELL_SIZE
-        Using br As New SolidBrush(Color.FromArgb(200, 255, 100, 0))
-            g.FillRectangle(br, rx + 1, ry + 1, CELL_SIZE - 2, CELL_SIZE - 2)
+        Dim rx As Integer = x * CELL_SIZE + 2
+        Dim ry As Integer = y * CELL_SIZE + 2
+        Dim sz As Integer = CELL_SIZE - 4
+        Using br As New SolidBrush(Color.FromArgb(200, 255, 80, 0))
+            g.FillRectangle(br, rx, ry, sz, sz)
         End Using
-        Dim pts1() As PointF = {
-            New PointF(rx + CELL_SIZE \ 2, ry + 2),
-            New PointF(rx + 6, ry + CELL_SIZE - 4),
-            New PointF(rx + CELL_SIZE - 6, ry + CELL_SIZE - 4)
-        }
-        Using br2 As New SolidBrush(Color.FromArgb(200, 255, 200, 0))
-            g.FillPolygon(br2, pts1)
-        End Using
-        Dim pts2() As PointF = {
-            New PointF(rx + CELL_SIZE \ 2, ry + 8),
-            New PointF(rx + 10, ry + CELL_SIZE - 4),
-            New PointF(rx + CELL_SIZE - 10, ry + CELL_SIZE - 4)
-        }
-        Using br3 As New SolidBrush(Color.FromArgb(220, 255, 255, 150))
-            g.FillPolygon(br3, pts2)
+        Using br2 As New SolidBrush(Color.FromArgb(150, 255, 220, 0))
+            g.FillRectangle(br2, rx + 6, ry + 6, sz - 12, sz - 12)
         End Using
     End Sub
 
     Private Sub DrawPlayer(g As Graphics, x As Integer, y As Integer, player As Integer)
-        Dim rx As Integer = x * CELL_SIZE + 3
-        Dim ry As Integer = y * CELL_SIZE + 3
-        Dim sz As Integer = CELL_SIZE - 6
-        Dim bodyClr As Color = If(player = 0, Color.CornflowerBlue, Color.Tomato)
-        Dim darkClr As Color = If(player = 0, Color.DarkBlue, Color.DarkRed)
+        Dim cx As Integer = x * CELL_SIZE + CELL_SIZE \ 2
+        Dim top As Integer = y * CELL_SIZE + 3
+
+        ' Mau ao theo player
+        Dim bodyClr As Color = If(player = 0, Color.DodgerBlue, Color.OrangeRed)
+        Dim darkClr As Color = If(player = 0, Color.FromArgb(20, 90, 180), Color.FromArgb(180, 60, 10))
+        Dim skinClr As Color = Color.FromArgb(255, 220, 170)
+        Dim skinDark As Color = Color.FromArgb(210, 170, 120)
+
+        ' --- Chan (2 hinh chu nhat nho phia duoi) ---
+        Dim legW As Integer = 7
+        Dim legH As Integer = 8
+        Dim legY As Integer = top + 30
+        Using br As New SolidBrush(darkClr)
+            g.FillRectangle(br, cx - 9, legY, legW, legH)
+            g.FillRectangle(br, cx + 2, legY, legW, legH)
+        End Using
+        ' Giay (den)
+        Using br As New SolidBrush(Color.FromArgb(40, 40, 40))
+            g.FillRectangle(br, cx - 10, legY + legH - 3, legW + 2, 4)
+            g.FillRectangle(br, cx + 1, legY + legH - 3, legW + 2, 4)
+        End Using
+
+        ' --- Than (hinh chu nhat bo goc) ---
+        Dim bodyRect As New Rectangle(cx - 11, top + 16, 22, 16)
         Using br As New SolidBrush(bodyClr)
-            g.FillRectangle(br, rx + sz \ 4, ry + sz \ 3, sz \ 2, sz * 2 \ 3)
+            g.FillRectangle(br, bodyRect)
         End Using
-        Dim headSz As Integer = sz * 5 \ 8
-        Dim headX As Integer = rx + (sz - headSz) \ 2
-        Dim headY As Integer = ry
-        Using br As New SolidBrush(Color.Bisque)
-            g.FillEllipse(br, headX, headY, headSz, headSz)
+        ' Vien than
+        Using p As New Pen(darkClr, 1.5!)
+            g.DrawRectangle(p, bodyRect)
         End Using
-        Using p As New Pen(darkClr, 2)
-            g.DrawEllipse(p, headX, headY, headSz, headSz)
+        ' Cuc ao (dot nho)
+        Using br As New SolidBrush(Color.White)
+            g.FillEllipse(br, cx - 2, top + 19, 4, 4)
         End Using
-        Using br As New SolidBrush(Color.Black)
-            g.FillEllipse(br, headX + headSz \ 4 - 2, headY + headSz \ 3, 4, 4)
-            g.FillEllipse(br, headX + headSz * 3 \ 4 - 2, headY + headSz \ 3, 4, 4)
+
+        ' --- Tay (2 hinh chu nhat hai ben) ---
+        Using br As New SolidBrush(bodyClr)
+            g.FillRectangle(br, cx - 17, top + 17, 6, 11)  ' tay trai
+            g.FillRectangle(br, cx + 11, top + 17, 6, 11)  ' tay phai
         End Using
-        Using fnt As New Font("Segoe UI", 7.0!, FontStyle.Bold)
-        Using brT As New SolidBrush(If(player = 0, Color.Cyan, Color.Yellow))
-            Dim txt As String = If(player = 0, "P1", "P2")
-            Dim tsz As SizeF = g.MeasureString(txt, fnt)
-            g.DrawString(txt, fnt, brT, CSng(rx + (sz - tsz.Width) / 2.0), CSng(ry + sz - tsz.Height - 1))
+        ' Ban tay
+        Using br As New SolidBrush(skinClr)
+            g.FillEllipse(br, cx - 18, top + 26, 7, 7)
+            g.FillEllipse(br, cx + 11, top + 26, 7, 7)
         End Using
+
+        ' --- Co (hinh chu nhat nho) ---
+        Using br As New SolidBrush(skinClr)
+            g.FillRectangle(br, cx - 4, top + 11, 8, 6)
         End Using
-        If player = localPlayer Then
-            Using p As New Pen(Color.Yellow, 2)
-                g.DrawRectangle(p, x * CELL_SIZE + 1, y * CELL_SIZE + 1, CELL_SIZE - 3, CELL_SIZE - 3)
+
+        ' --- Dau (hinh tron) ---
+        Dim headRad As Integer = 10
+        Using br As New SolidBrush(skinClr)
+            g.FillEllipse(br, cx - headRad, top, headRad * 2, headRad * 2)
+        End Using
+        ' Vien dau
+        Using p As New Pen(skinDark, 1.0!)
+            g.DrawEllipse(p, cx - headRad, top, headRad * 2, headRad * 2)
+        End Using
+
+        ' --- Mu bao hiem / non (nua hinh tron phia tren dau) ---
+        Dim hatClr As Color = If(player = 0, Color.FromArgb(0, 60, 160), Color.FromArgb(160, 30, 0))
+        Using br As New SolidBrush(hatClr)
+            g.FillEllipse(br, cx - headRad - 1, top - 3, (headRad + 1) * 2, headRad + 4)
+        End Using
+        ' Vanh mu
+        Using br As New SolidBrush(hatClr)
+            g.FillRectangle(br, cx - headRad - 3, top + 5, (headRad + 3) * 2, 3)
+        End Using
+
+        ' --- Mat (2 diem den) ---
+        Using br As New SolidBrush(Color.FromArgb(30, 30, 30))
+            g.FillEllipse(br, cx - 5, top + 5, 3, 3)
+            g.FillEllipse(br, cx + 2, top + 5, 3, 3)
+        End Using
+        ' Mieng (duong cong nho) ---
+        Using p As New Pen(Color.FromArgb(160, 80, 60), 1.2!)
+            g.DrawArc(p, cx - 4, top + 9, 8, 4, 10, 160)
+        End Using
+
+        ' --- So hieu P1/P2 tren mu ---
+        Using fnt As New Font("Arial", 6.5!, FontStyle.Bold)
+            Using tbr As New SolidBrush(Color.White)
+                Dim sf As New StringFormat()
+                sf.Alignment = StringAlignment.Center
+                sf.LineAlignment = StringAlignment.Center
+                g.DrawString(If(player = 0, "1", "2"), fnt, tbr,
+                    New RectangleF(cx - 6, top - 4, 12, 10), sf)
             End Using
-        End If
+        End Using
+    End Sub
+
+    Private Sub DrawMonster(g As Graphics, x As Integer, y As Integer)
+        Dim cx As Integer = x * CELL_SIZE + CELL_SIZE \ 2
+        Dim cy As Integer = y * CELL_SIZE + CELL_SIZE \ 2
+        Dim rad As Integer = CELL_SIZE \ 2 - 6
+
+        ' Than monster mau xanh la cay
+        Using br As New SolidBrush(Color.FromArgb(50, 200, 80))
+            g.FillEllipse(br, cx - rad, cy - rad + 4, rad * 2, rad * 2 - 2)
+        End Using
+        ' Dau
+        Using br As New SolidBrush(Color.FromArgb(60, 220, 90))
+            g.FillEllipse(br, cx - rad + 3, cy - rad - 2, rad * 2 - 6, rad + 4)
+        End Using
+        ' Mat do
+        Using br As New SolidBrush(Color.Red)
+            g.FillEllipse(br, cx - 7, cy - rad + 1, 5, 5)
+            g.FillEllipse(br, cx + 2, cy - rad + 1, 5, 5)
+        End Using
+        ' Vien
+        Using p As New Pen(Color.FromArgb(20, 120, 40), 1.5!)
+            g.DrawEllipse(p, cx - rad, cy - rad + 4, rad * 2, rad * 2 - 2)
+        End Using
     End Sub
 
     ' ============================================================
-    '  KEYBOARD INPUT
+    '  INPUT
     ' ============================================================
     Private Sub Form1_KeyDown(sender As Object, e As KeyEventArgs)
-        If game Is Nothing OrElse game.GameOver Then Return
-        If localPlayer < 0 Then Return
+        If game Is Nothing OrElse localPlayer < 0 Then Return
+        ' Neu dang focus vao chat thi khong xu ly phim game
+        If txtChatInput IsNot Nothing AndAlso txtChatInput.Focused Then Return
 
         Dim dx As Integer = 0, dy As Integer = 0
         Dim placeBomb As Boolean = False
@@ -370,7 +654,6 @@ Public Class Form1
             If isHost Then
                 If game.TryPlaceBomb(localPlayer) Then
                     boardPanel.Invalidate()
-                    ' FIX: danh dau gui STATE o Tick tiep theo, khong gui ngay
                     statePending = True
                     AppendLog(game.LastLog)
                 End If
@@ -385,7 +668,6 @@ Public Class Form1
             If isHost Then
                 If game.TryMove(localPlayer, dx, dy) Then
                     boardPanel.Invalidate()
-                    ' FIX: gop voi STATE cua Tick, khong spam lien tuc
                     statePending = True
                 End If
             Else
@@ -396,17 +678,16 @@ Public Class Form1
     End Sub
 
     ' ============================================================
-    '  TICK TIMER (chi host)
+    '  TICK TIMER
     ' ============================================================
     Private Sub TickTimer_Tick(sender As Object, e As EventArgs)
         If game Is Nothing OrElse Not isHost Then Return
         game.Tick()
-        statePending = True  ' Tick luon gui STATE
+        statePending = True
         boardPanel.Invalidate()
         RefreshInfo()
 
-        ' FIX: gui STATE 1 lan duy nhat sau khi Tick + input da xu ly
-        If statePending Then
+        If statePending AndAlso Not isPvAIMode Then
             BroadcastState()
             statePending = False
         End If
@@ -414,7 +695,6 @@ Public Class Form1
         If game.GameOver Then
             tickTimer.Stop()
             AppendLog(game.LastLog)
-            ' FIX: dung BeginInvoke de tranh block network thread
             Me.BeginInvoke(New Action(Sub()
                 MessageBox.Show(game.LastLog, "Ket thuc!")
             End Sub))
@@ -422,7 +702,7 @@ Public Class Form1
     End Sub
 
     ' ============================================================
-    '  NETWORK
+    '  NETWORK (PvP only)
     ' ============================================================
     Private Sub BtnHost_Click(sender As Object, e As EventArgs)
         Dim port As Integer
@@ -459,10 +739,12 @@ Public Class Form1
 
     Private Sub Peer_Disconnected()
         tickTimer.Stop()
-        ' FIX: dung BeginInvoke de tranh deadlock khi MessageBox block UI thread
         Me.BeginInvoke(New Action(Sub()
+            If game IsNot Nothing AndAlso game.GameOver Then Return
             MessageBox.Show("Mat ket noi.")
-            pnlGame.Visible = False : pnlConnect.Visible = True
+            pnlGame.Visible = False
+            pnlConnect.Visible = False
+            pnlMode.Visible = True
         End Sub))
     End Sub
 
@@ -471,6 +753,7 @@ Public Class Form1
             If isHost Then
                 localPlayer = 0
                 game = New BombGame()
+                game.IsPvAI = False
                 ShowGamePanel()
                 statePending = False
                 BroadcastState()
@@ -516,14 +799,31 @@ Public Class Form1
                     AppendLog(game.LastLog)
                 End If
             End If
+        ElseIf line.StartsWith("CHAT:") Then
+            Dim payload As String = line.Substring(5)
+            Dim colon As Integer = payload.IndexOf(":"c)
+            If colon >= 0 Then
+                Dim tag As String = payload.Substring(0, colon)
+                Dim msg As String = payload.Substring(colon + 1)
+                AppendChat(tag & ": " & msg)
+            End If
+
         End If
     End Sub
 
     Private Sub ShowGamePanel()
-        pnlConnect.Visible = False : pnlGame.Visible = True
-        lblYouAre.Text = If(localPlayer = 0,
-            "Ban la: Player 1 (Xanh)  |  WASD/Mui ten di chuyen, Space dat bom",
-            "Ban la: Player 2 (Do)    |  WASD/Mui ten di chuyen, Space dat bom")
+        pnlConnect.Visible = False
+        pnlMode.Visible = False
+        pnlGame.Visible = True
+        pnlChat.Visible = Not isPvAIMode
+        lstChat.Items.Clear()
+        If isPvAIMode Then
+            lblYouAre.Text = "PvAI  |  WASD/Mui ten di chuyen, Space dat bom  |  Tieu diet het monster!"
+        Else
+            lblYouAre.Text = If(localPlayer = 0,
+                "Ban la: Player 1 (Xanh)  |  WASD/Mui ten di chuyen, Space dat bom",
+                "Ban la: Player 2 (Do)    |  WASD/Mui ten di chuyen, Space dat bom")
+        End If
         RefreshInfo()
     End Sub
 
@@ -537,10 +837,14 @@ Public Class Form1
         If Not isHost OrElse game Is Nothing Then Return
         tickTimer.Stop()
         game.ResetBoard()
+        If isPvAIMode Then
+            game.IsPvAI = True
+            game.SpawnMonsters(4)
+        End If
         statePending = False
         boardPanel.Invalidate()
         RefreshInfo()
-        BroadcastState()
+        If Not isPvAIMode Then BroadcastState()
         AppendLog("Bat dau lai!")
         tickTimer.Start()
     End Sub
@@ -548,17 +852,23 @@ Public Class Form1
     Private Sub RefreshInfo()
         If game Is Nothing Then Return
         Dim sb As New System.Text.StringBuilder()
-        sb.Append("P1 ")
-        sb.Append(If(game.PlayerAlive(0), "[Song]", "[Chet]"))
-        sb.Append("  |  P2 ")
-        sb.Append(If(game.PlayerAlive(1), "[Song]", "[Chet]"))
-        sb.Append("  |  Bom tren san: ")
-        sb.Append(game.Bombs.Count.ToString())
-        sb.Append("  |  Lua: ")
-        sb.Append(game.Fires.Count.ToString())
-        If game.GameOver Then
-            sb.Append("  >>> " & game.LastLog)
+        If isPvAIMode Then
+            sb.Append("Player ")
+            sb.Append(If(game.PlayerAlive(0), "[Song]", "[Chet]"))
+            sb.Append(String.Format("  R:{0} B:{1}{2}", game.PlayerRange(0), game.PlayerMaxBombs(0),
+                If(game.PlayerSpeed(0) > 0, " SPD", "")))
+            sb.Append(String.Format("  |  Monster con lai: {0}", game.CountAliveMonsters()))
+        Else
+            sb.Append("P1 ")
+            sb.Append(If(game.PlayerAlive(0), "[Song]", "[Chet]"))
+            sb.Append(String.Format(" R:{0} B:{1}{2}", game.PlayerRange(0), game.PlayerMaxBombs(0),
+                If(game.PlayerSpeed(0) > 0, " SPD", "")))
+            sb.Append("  |  P2 ")
+            sb.Append(If(game.PlayerAlive(1), "[Song]", "[Chet]"))
+            sb.Append(String.Format(" R:{0} B:{1}{2}", game.PlayerRange(1), game.PlayerMaxBombs(1),
+                If(game.PlayerSpeed(1) > 0, " SPD", "")))
         End If
+        If game.GameOver Then sb.Append("  >>> " & game.LastLog)
         lblInfo.Text = sb.ToString()
     End Sub
 
@@ -567,4 +877,15 @@ Public Class Form1
         lstLog.TopIndex = lstLog.Items.Count - 1
     End Sub
 
+End Class
+
+' Panel co double buffering de chong nhay man hinh
+Public Class DoubleBufferedPanel
+    Inherits Panel
+    Public Sub New()
+        Me.SetStyle(ControlStyles.OptimizedDoubleBuffer Or
+                    ControlStyles.AllPaintingInWmPaint Or
+                    ControlStyles.UserPaint, True)
+        Me.UpdateStyles()
+    End Sub
 End Class
