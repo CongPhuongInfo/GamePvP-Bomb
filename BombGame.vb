@@ -10,7 +10,7 @@ Public Class BombGame
     Public Const COLS As Integer = 13
     Public Const ROWS As Integer = 11
     Public Const BOMB_TIMER As Integer = 5
-    Public Const FIRE_DURATION As Integer = 3
+    Public Const FIRE_DURATION As Integer = 2
 
     Public Enum CellType As Byte
         Empty = 0
