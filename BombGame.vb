@@ -193,26 +193,6 @@ Public Class BombGame
         PlayerY(player) = ny
 
         PickupPowerup(player)
-
-        If PlayerSpeed(player) >= 1 Then
-            Dim nx2 As Integer = PlayerX(player) + dx
-            Dim ny2 As Integer = PlayerY(player) + dy
-            If nx2 >= 0 AndAlso nx2 < COLS AndAlso ny2 >= 0 AndAlso ny2 < ROWS Then
-                If Map(nx2, ny2) = CellType.Empty Then
-                    Dim blocked As Boolean = False
-                    Dim j As Integer
-                    For j = 0 To Bombs.Count - 1
-                        If Bombs(j).X = nx2 AndAlso Bombs(j).Y = ny2 Then blocked = True : Exit For
-                    Next j
-                    If Not blocked Then
-                        PlayerX(player) = nx2
-                        PlayerY(player) = ny2
-                        PickupPowerup(player)
-                    End If
-                End If
-            End If
-        End If
-
         CheckPlayerFireDamage(player)
         CheckMonsterContact(player)
         Return True
@@ -245,31 +225,40 @@ Public Class BombGame
         If GameOver Then Return
         TickCount += 1
 
-        ' === Buoc 1: No bom het gio TRUOC (de lua moi sinh ra trong tick nay) ===
+        ' === Buoc 1: No bom het gio ===
+        ' Giam timer tat ca bom, thu thap index can no
         Dim explodeList As New List(Of BombInfo)()
+        Dim removeIndices As New List(Of Integer)()
         Dim bi As Integer
         For bi = 0 To Bombs.Count - 1
             Dim bm As BombInfo = Bombs(bi)
             bm.Timer -= 1
+            Bombs(bi) = bm
             If bm.Timer <= 0 Then
                 explodeList.Add(bm)
-            Else
-                Bombs(bi) = bm
+                removeIndices.Add(bi)
             End If
         Next bi
+
+        ' Xoa bom tu cuoi xuong dau de index khong bi lech
+        removeIndices.Sort()
+        Dim ri As Integer
+        For ri = removeIndices.Count - 1 To 0 Step -1
+            Dim idx As Integer = removeIndices(ri)
+            Dim owner As Integer = Bombs(idx).Owner
+            PlayerBombCount(owner) -= 1
+            If PlayerBombCount(owner) < 0 Then PlayerBombCount(owner) = 0
+            Bombs.RemoveAt(idx)
+        Next ri
+
+        ' Kich no tung qua - dung Set vi tri da no de tranh no 2 lan
+        ' (co the xay ra neu bom A chain kich bom B, roi B lai co trong explodeList)
+        Dim explodedPos As New HashSet(Of Long)()
         For bi = 0 To explodeList.Count - 1
             Dim bm As BombInfo = explodeList(bi)
-            Dim foundAt As Integer = -1
-            Dim si As Integer
-            For si = 0 To Bombs.Count - 1
-                If Bombs(si).X = bm.X AndAlso Bombs(si).Y = bm.Y AndAlso Bombs(si).Owner = bm.Owner Then
-                    foundAt = si : Exit For
-                End If
-            Next si
-            If foundAt >= 0 Then
-                PlayerBombCount(bm.Owner) -= 1
-                If PlayerBombCount(bm.Owner) < 0 Then PlayerBombCount(bm.Owner) = 0
-                Bombs.RemoveAt(foundAt)
+            Dim posKey As Long = CLng(bm.X) * 100L + CLng(bm.Y)
+            If Not explodedPos.Contains(posKey) Then
+                explodedPos.Add(posKey)
                 ExplodeBomb(bm)
             End If
         Next bi
@@ -295,6 +284,83 @@ Public Class BombGame
         CheckGameOver()
     End Sub
 
+    ' BFS tim buoc di dau tien ngan nhat tu (sx,sy) den (tx,ty)
+    ' Tra ve Point buoc di tiep theo, hoac Point(-1,-1) neu khong tim duoc duong
+    Private Function BfsNextStep(sx As Integer, sy As Integer, tx As Integer, ty As Integer, monsterIdx As Integer) As Point
+        If sx = tx AndAlso sy = ty Then Return New Point(-1, -1)
+
+        Dim dirs() As Point = {New Point(1, 0), New Point(-1, 0), New Point(0, 1), New Point(0, -1)}
+        Dim visited(COLS - 1, ROWS - 1) As Boolean
+        Dim fromDir(COLS - 1, ROWS - 1) As Integer  ' huong di de den o nay tu goc
+        Dim queue As New Queue(Of Point)()
+
+        visited(sx, sy) = True
+        queue.Enqueue(New Point(sx, sy))
+        Dim found As Boolean = False
+
+        Dim di As Integer
+        ' Khoi tao fromDir = -1
+        Dim fy As Integer, fx As Integer
+        For fy = 0 To ROWS - 1
+            For fx = 0 To COLS - 1
+                fromDir(fx, fy) = -1
+            Next fx
+        Next fy
+
+        Do While queue.Count > 0 AndAlso Not found
+            Dim cur As Point = queue.Dequeue()
+            For di = 0 To 3
+                Dim nx As Integer = cur.X + dirs(di).X
+                Dim ny As Integer = cur.Y + dirs(di).Y
+                If nx < 0 OrElse nx >= COLS OrElse ny < 0 OrElse ny >= ROWS Then Continue For
+                If visited(nx, ny) Then Continue For
+                If Map(nx, ny) <> CellType.Empty Then Continue For
+
+                ' Tranh bom va lua (nguy hiem)
+                Dim danger As Boolean = False
+                Dim bi As Integer
+                For bi = 0 To Bombs.Count - 1
+                    If Bombs(bi).X = nx AndAlso Bombs(bi).Y = ny Then danger = True : Exit For
+                Next bi
+                If danger Then Continue For
+                Dim fi As Integer
+                For fi = 0 To Fires.Count - 1
+                    If Fires(fi).X = nx AndAlso Fires(fi).Y = ny Then danger = True : Exit For
+                Next fi
+                If danger Then Continue For
+
+                ' Tranh monster khac (tru ban than)
+                Dim hasM As Boolean = False
+                Dim mi As Integer
+                For mi = 0 To Monsters.Count - 1
+                    If mi = monsterIdx Then Continue For
+                    If Monsters(mi).Alive AndAlso Monsters(mi).X = nx AndAlso Monsters(mi).Y = ny Then
+                        hasM = True : Exit For
+                    End If
+                Next mi
+                If hasM Then Continue For
+
+                visited(nx, ny) = True
+                ' Luu huong di tu goc (sx,sy)
+                If cur.X = sx AndAlso cur.Y = sy Then
+                    fromDir(nx, ny) = di
+                Else
+                    fromDir(nx, ny) = fromDir(cur.X, cur.Y)
+                End If
+
+                If nx = tx AndAlso ny = ty Then
+                    found = True : Exit For
+                End If
+                queue.Enqueue(New Point(nx, ny))
+            Next di
+        Loop
+
+        If Not found Then Return New Point(-1, -1)
+        Dim stepDir As Integer = fromDir(tx, ty)
+        If stepDir < 0 Then Return New Point(-1, -1)
+        Return dirs(stepDir)
+    End Function
+
     Private Sub MoveMonsters()
         Dim dirs() As Point = {New Point(1, 0), New Point(-1, 0), New Point(0, 1), New Point(0, -1)}
         Dim i As Integer
@@ -308,46 +374,59 @@ Public Class BombGame
             End If
             m.MoveTimer = 2  ' reset
 
-            ' Xao tron huong di
-            Dim order() As Integer = {0, 1, 2, 3}
-            Dim j As Integer
-            For j = 3 To 1 Step -1
-                Dim k As Integer = rng.Next(j + 1)
-                Dim tmp As Integer = order(j)
-                order(j) = order(k)
-                order(k) = tmp
-            Next j
+            ' Chon buoc di: 70% BFS duoi player, 30% random de game khong qua kho
+            Dim chosenDX As Integer = 0, chosenDY As Integer = 0
+            Dim moved As Boolean = False
 
-            ' Thu di 1 huong hop le
-            For j = 0 To 3
-                Dim d As Point = dirs(order(j))
-                Dim nx As Integer = m.X + d.X
-                Dim ny As Integer = m.Y + d.Y
-                If nx < 0 OrElse nx >= COLS OrElse ny < 0 OrElse ny >= ROWS Then Continue For
-                If Map(nx, ny) <> CellType.Empty Then Continue For
+            If PlayerAlive(0) AndAlso rng.Next(100) < 70 Then
+                ' BFS den player
+                Dim nextStep As Point = BfsNextStep(m.X, m.Y, PlayerX(0), PlayerY(0), i)
+                If nextStep.X <> -1 Then
+                    chosenDX = nextStep.X : chosenDY = nextStep.Y
+                    moved = True
+                End If
+            End If
 
-                ' Tranh bom
-                Dim hasBomb As Boolean = False
-                Dim bi As Integer
-                For bi = 0 To Bombs.Count - 1
-                    If Bombs(bi).X = nx AndAlso Bombs(bi).Y = ny Then hasBomb = True : Exit For
-                Next bi
-                If hasBomb Then Continue For
+            If Not moved Then
+                ' Fallback: random (xao tron huong)
+                Dim order() As Integer = {0, 1, 2, 3}
+                Dim j As Integer
+                For j = 3 To 1 Step -1
+                    Dim k As Integer = rng.Next(j + 1)
+                    Dim tmp As Integer = order(j)
+                    order(j) = order(k)
+                    order(k) = tmp
+                Next j
+                For j = 0 To 3
+                    Dim d As Point = dirs(order(j))
+                    Dim nx As Integer = m.X + d.X
+                    Dim ny As Integer = m.Y + d.Y
+                    If nx < 0 OrElse nx >= COLS OrElse ny < 0 OrElse ny >= ROWS Then Continue For
+                    If Map(nx, ny) <> CellType.Empty Then Continue For
+                    Dim hasBomb As Boolean = False
+                    Dim bi As Integer
+                    For bi = 0 To Bombs.Count - 1
+                        If Bombs(bi).X = nx AndAlso Bombs(bi).Y = ny Then hasBomb = True : Exit For
+                    Next bi
+                    If hasBomb Then Continue For
+                    Dim hasMonster As Boolean = False
+                    Dim mi As Integer
+                    For mi = 0 To Monsters.Count - 1
+                        If mi = i Then Continue For
+                        If Monsters(mi).Alive AndAlso Monsters(mi).X = nx AndAlso Monsters(mi).Y = ny Then
+                            hasMonster = True : Exit For
+                        End If
+                    Next mi
+                    If hasMonster Then Continue For
+                    chosenDX = d.X : chosenDY = d.Y
+                    moved = True
+                    Exit For
+                Next j
+            End If
 
-                ' Tranh monster khac
-                Dim hasMonster As Boolean = False
-                Dim mi As Integer
-                For mi = 0 To Monsters.Count - 1
-                    If mi = i Then Continue For
-                    If Monsters(mi).Alive AndAlso Monsters(mi).X = nx AndAlso Monsters(mi).Y = ny Then
-                        hasMonster = True : Exit For
-                    End If
-                Next mi
-                If hasMonster Then Continue For
-
-                m.X = nx : m.Y = ny
-                Exit For
-            Next j
+            If moved Then
+                m.X += chosenDX : m.Y += chosenDY
+            End If
 
             Monsters(i) = m
 
@@ -377,7 +456,9 @@ Public Class BombGame
     End Sub
 
     Private Sub ExplodeBomb(bm As BombInfo)
-        ' Dung queue thay vi de quy de tranh crash khi co nhieu bom
+        ' Dung queue de xu ly chain reaction (bom trong tam no cua bom khac cung no theo)
+        ' Luu y: bm da duoc xoa khoi Bombs truoc khi goi ham nay (boi Tick)
+        ' Chi bom trong Bombs (chua het gio) moi co the bi kich no day chuyen o day
         Dim queue As New Queue(Of BombInfo)()
         queue.Enqueue(bm)
 
@@ -390,11 +471,12 @@ Public Class BombGame
             SpreadFire(cur.X, cur.Y, 0, 1, cur.Range)
             SpreadFire(cur.X, cur.Y, 0, -1, cur.Range)
 
-            ' Tim bom nao bi lua -> them vao queue (chain reaction)
+            ' Tim bom con lai trong Bombs bi lua cham -> kich no day chuyen
             Dim i As Integer = 0
             Do While i < Bombs.Count
                 Dim candidate As BombInfo = Bombs(i)
                 If Fires.Exists(Function(f) f.X = candidate.X AndAlso f.Y = candidate.Y) Then
+                    ' Xoa khoi Bombs truoc, giam bom count, roi enqueue
                     PlayerBombCount(candidate.Owner) -= 1
                     If PlayerBombCount(candidate.Owner) < 0 Then PlayerBombCount(candidate.Owner) = 0
                     Bombs.RemoveAt(i)
